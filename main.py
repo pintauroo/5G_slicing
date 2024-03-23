@@ -55,14 +55,9 @@ class BaseStation:
                     queue.flows_packets.extend([flow.id] * added_packets)
                     print(f'Flow {flow.id} added {added_packets} packets to Queue {queue.id}')
 
-    def bs_data_rate(self, 
-                     rb=1, 
-                     numerology=1, 
-                     cqi=15, 
-                     tti=1,
-                     bw=15):
-        subcarrier_spacing = bw * (2 ** numerology)
-        symbol_per_slot = 14
+    def bs_data_rate(self,cqi=15):
+        
+
         slots_per_frame = 1600
 
         cqi_factors = [0.1523, 0.1523, 0.3770, 0.8770, 1.4766, 1.9141, 2.4063, 2.7305, 3.3223, 3.9023, 4.5234, 5.1152, 5.5547, 6.2266, 6.9141, 7.4063]
@@ -115,6 +110,11 @@ class BaseStation:
         
 
         print(f'PRB allocated: {prbs_allocation}, PRB used: {prbs_allocation_used}')
+
+
+    def drain(self):
+        total_packets = sum(queue.packets for queue in self.queues)
+
 
 
 
