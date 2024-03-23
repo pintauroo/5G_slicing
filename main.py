@@ -1,5 +1,6 @@
 import csv
 import random
+import math
 
 class Queue:
     def __init__(self, id):
@@ -55,43 +56,24 @@ class BaseStation:
                     print(f'Flow {flow.id} added {added_packets} packets to Queue {queue.id}')
 
     def bs_data_rate(self, 
-                     rb=3, 
+                     rb=1, 
                      numerology=1, 
-                     mcs=29, 
+                     cqi=15, 
                      tti=1,
                      bw=15):
         subcarrier_spacing = bw * (2 ** numerology)
         symbol_per_slot = 14
-        slots_per_frame = 10 * (2 ** numerology)
+        slots_per_frame = 1600
 
-        if mcs <=10:
-            modulation_bit = 2
-            coding_rate = 0.45
-
-        elif mcs <=20:
-            modulation_bit = 4
-            coding_rate = 0.60
-
-        elif mcs <=28:
-            modulation_bit = 6
-            coding_rate = 0.75
-
-        else:
-            modulation_bit = 8
-            coding_rate = 0.90
+        cqi_factors = [0.1523, 0.1523, 0.3770, 0.8770, 1.4766, 1.9141, 2.4063, 2.7305, 3.3223, 3.9023, 4.5234, 5.1152, 5.5547, 6.2266, 6.9141, 7.4063]
 
 
+        Tbsize = 132 * cqi_factors[int(cqi)]
 
-        bw_per_rb = subcarrier_spacing * 12
+        Tbsize = math.floor(Tbsize)
 
-        total_bw = rb * bw_per_rb
+        rate = int(Tbsize) * int(slots_per_frame)
 
-
-        data_per_symbol = modulation_bit
-        total_symbols = rb * symbol_per_slot * slots_per_frame * 12
-        total_bits = total_symbols * data_per_symbol * coding_rate
-
-        rate = total_bits / ( tti * 10**-3)
 
         #data rate bit/s
 
