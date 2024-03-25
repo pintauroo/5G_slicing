@@ -168,7 +168,7 @@ class BaseStation:
 
                 print(f'Queue {queue.id} drained, remaining packets: {queue.packets}')
     
-    
+
     def RR_scehduler(self, n_flows: int, current_index: int):
 
         self.num_flows = n_flows
@@ -240,12 +240,7 @@ class BaseStation:
             time_step = self.time_stamp
             csvwriter.writerow(['Time Step'] + [f'Queue {i} PRBs' for i in range(len(self.queues))])
             for i in range(len(self.prb_used)):
-            #     print([i])
-            #     print(allocation)
-            #     csvwriter.writerow(str(i) + str(allocation))
-                
-                print(len(self.prb_used))
-                csvwriter.writerow(str(time_step[i]) + str(self.prb_used[i]))
+                csvwriter.writerow([i] + self.prb_used[i])
                
 
 # Set up the simulation parameters
