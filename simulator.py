@@ -156,7 +156,7 @@ class BaseStation:
                 
                 packets_to_tx = min(queue.packets, self.bs_data_rate(self.cqi[i]) * self.prbs_allocations[i])
 
-                flow_priorities = self.PF_scheduler(queue, self.bs_data_rate(self.cqi[i]) )
+                flow_priorities = self.PF_scheduler(queue, self.bs_data_rate(self.cqi[i]))
                 for flow_id, _ in flow_priorities:
                     flow = next((f for f in queue.flows if f.id == flow_id), None)
                     if flow:
@@ -174,6 +174,19 @@ class BaseStation:
                 print(f'Queue {queue.id} drained, remaining packets: {queue.packets}')
     
 
+    def drain_sched_max_throughput(self):
+
+        self.prb_allocations = self.slicing(total_prbs=50)
+
+        q_index = np.argmin(self.cqi)
+
+        queue = self.queues[q_index]
+
+        if queue.packets > 0:
+
+            packets_to_tx = min(queue.packets, self.bs_data_rate(self.cqi[i]) * self.prbs_allocations[i])
+    
+
     def RR_scehduler(self, n_flows: int, current_index: int):
 
         self.num_flows = n_flows - len(self.completed_flows)
@@ -182,6 +195,8 @@ class BaseStation:
         #next flow index 
         self.next_index = (self.current_index + 1) % self.num_flows
         return self.next_index
+    
+
 
 
     def PF_scheduler(self, queue, data_rate):
@@ -226,8 +241,10 @@ class BaseStation:
                 proportion = queue.packets / total_packets
                 cqi = self.cqi[i]
 
-                #75% priority to data to transmit and 25% to cqi
-                prbs_allocation[i] = int(0.75 * proportion * prbs_to_slice +  .25 * prbs_to_slice * cqi)
+                normalized_cqi = (15 - cqi) / 14
+
+                #75% priority to BUFFER  and 25% to cqi
+                prbs_allocation[i] = int(0.75 * proportion * prbs_to_slice +  .25 * prbs_to_slice * normalized_cqi)
         
         return prbs_allocation
 
@@ -238,7 +255,9 @@ class BaseStation:
 
         #place holder for slicing algorithm
         
-        self.prb_allocations = self.propotional_slicing(total_prbs)
+        #self.prb_allocations = self.propotional_slicing(total_prbs)
+
+        self.prb_allocations = self.dynamic_slicing(total_prbs)
 
         self.prb_used.append(self.prb_allocations)
 
