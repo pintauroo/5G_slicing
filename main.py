@@ -132,7 +132,7 @@ class BaseStation:
         self.radio_link_quality = [random.random() for _ in range(3)] 
         self.time += 1
         self.fill_queues()
-        self.drain_queues(radio_link_quality=self.radio_link_quality)
+        self.drain_queues()
 
     def simulate(self, num_steps: int):
         for _ in range(num_steps):
