@@ -144,36 +144,30 @@ class BaseStation:
 
     def drain_sched_PF(self):
         
-        self.prbs_allocations = self.slicing(total_prbs=50) # slicing function output
+        self.prbs_allocations = self.slicing(total_prbs=50)  # Example slicing function output
 
-        packets_transmitted = [0] * len(self.queues)
-
-        for i,queue in enumerate(self.queues):
-
+        for i, queue in enumerate(self.queues):
             if queue.packets > 0:
+                
+                packets_to_tx = min(queue.packets, self.bs_data_rate(self.cqi[i]) * self.prbs_allocations[i])
 
-                packets_to_tx = min (queue.packets, self.bs_data_rate(self.cqi[i]) * self.prbs_allocations[i])
-                packets_transmitted[i] = packets_to_tx
-                flow_id = -1
-
-                while packets_to_tx > 0 and queue.flows_packets:
-                    # flow_id = queue.flows_packets.pop(0)
-                    # flow = next((f for f in queue.flows if f.id == flow_id), None)
-                    
-
-                    flow_id = self.PF_scheduler(len(queue.flows), flow_id, queue)
+                flow_priorities = self.PF_scheduler(queue, self.bs_data_rate(self.cqi[i]) )
+                for flow_id, _ in flow_priorities:
                     flow = next((f for f in queue.flows if f.id == flow_id), None)
-
                     if flow:
-                        acked = flow.ack(1, self.time)
-                        packets_to_tx -=1
+                        packets_from_flow = min(packets_to_tx, flow.num_packets)
+                        acked = flow.ack(packets_from_flow, self.time)
+                        packets_to_tx -= packets_from_flow
+                        queue.packets -= packets_from_flow
+
                         if acked and flow not in self.completed_flows:
                             self.completed_flows.append(flow)
-                    
-                    
-            
-            queue.packets -= packets_transmitted[i]
-            print(f'Queue {queue.id} drained {packets_transmitted[i]} packets, remaining packets: {queue.packets}')
+
+                        if packets_to_tx <= 0:
+                            break
+
+                print(f'Queue {queue.id} drained, remaining packets: {queue.packets}')
+    
     
     def RR_scehduler(self, n_flows: int, current_index: int):
 
@@ -184,20 +178,22 @@ class BaseStation:
         self.next_index = (self.current_index + 1) % self.num_flows
         return self.next_index
 
-    
-    def PF_scheduler(self, n_flows: int, queue_data_rate, queue:Queue):
 
-        self.num_flows = n_flows
+    def PF_scheduler(self, queue, data_rate):
         
-        average_data_rate = queue_data_rate / self.num_flows
+        flow_priorities = []
+        for flow in queue.flows:
 
-        packet_sizes = queue.flows_packets
+            if flow.num_packets > 0 and flow.inflight > 0:
 
+                priority = flow.num_packets / data_rate 
 
-        estimated_fct = [x * average_data_rate for x in packet_sizes]
-        selected_flow_index = max(estimated_fct)
+                flow_priorities.append((flow.id, priority))
 
-        return selected_flow_index
+        
+        sorted_flows = sorted(flow_priorities, key=lambda x: x[1], reverse=True)
+        return sorted_flows
+
 
     
         
