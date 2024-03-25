@@ -1,6 +1,7 @@
 import csv
 import random
 import math
+import numpy as np
 
 class Queue:
     def __init__(self, id):
@@ -109,6 +110,8 @@ class BaseStation:
 
 
     def drain_sched_RR(self):
+
+        print('-----DRAIN------ \n')
         
         self.prbs_allocations = self.slicing(total_prbs=50) # slicing function output
 
@@ -128,12 +131,14 @@ class BaseStation:
                     
 
                     flow_id = self.RR_scehduler(len(queue.flows), flow_id)
+
                     flow = next((f for f in queue.flows if f.id == flow_id), None)
 
                     if flow:
-                        acked = flow.ack(1, self.time)
-                        packets_to_tx -=1
-                        if acked and flow not in self.completed_flows:
+                        packets_from_flow = min(packets_to_tx, flow.num_packets)
+                        acked = flow.ack(packets_from_flow, self.time)
+                        packets_to_tx -= packets_from_flow
+                        if acked and flow not in self.completed_flows and flow.num_packets <=0:
                             self.completed_flows.append(flow)
                     
                     
@@ -171,7 +176,7 @@ class BaseStation:
 
     def RR_scehduler(self, n_flows: int, current_index: int):
 
-        self.num_flows = n_flows
+        self.num_flows = n_flows - len(self.completed_flows)
         self.current_index = current_index
 
         #next flow index 
@@ -196,24 +201,58 @@ class BaseStation:
 
 
     
+    def propotional_slicing(self, prbs_to_slice):
+
+        total_packets = sum(queue.packets for queue in self.queues)
+
+        prbs_allocation = [0] * len(self.queues)
+        if total_packets > 0:
+            for i, queue in enumerate(self.queues):
+                proportion = queue.packets / total_packets
+                prbs_allocation[i] = int(proportion * prbs_to_slice)
         
 
+        return prbs_allocation
+    
 
+    def dynamic_slicing(self, prbs_to_slice):
+
+        total_packets = sum(queue.packets for queue in self.queues)
+        
+        prbs_allocation = [0] * len(self.queues)
+
+        if total_packets > 0:
+            for i, queue in enumerate(self.queues):
+                proportion = queue.packets / total_packets
+                cqi = self.cqi[i]
+
+                #75% priority to data to transmit and 25% to cqi
+                prbs_allocation[i] = int(0.75 * proportion * prbs_to_slice +  .25 * prbs_to_slice * cqi)
+        
+        return prbs_allocation
+
+        
     def slicing(self, total_prbs):
 
+
+
         #place holder for slicing algorithm
-        self.prb_allocations = [5,5,5]
+        
+        self.prb_allocations = self.propotional_slicing(total_prbs)
 
         self.prb_used.append(self.prb_allocations)
 
         return self.prb_allocations
 
+ 
+
     def simulate_time_step(self):
-        self.cqi = [random.randint(1,15) for _ in range(3)] 
+        self.cqi = [random.randint(1,15) for _ in range(3)]  # place holder for actual channel condition function
         self.time += 1
         self.fill_queues()
         #drain the queue accordin to different sched algorithm
         self.drain_sched_PF()
+        #self.drain_sched_RR()
 
     
 
@@ -250,7 +289,9 @@ base_station = BaseStation(num_prbs=15)
 
 # Generate random flows and associate them with queues
 
-random_flows = [Flow(id=i, num_packets=random.randint(100, 200000), start_time=random.randint(0, 10)) for i in range(flows_number)]
+#random_flows = [Flow(id=i, num_packets=random.randint(100, 200000), start_time=random.randint(0, 10)) for i in range(flows_number)]
+
+random_flows = [Flow(id=i, num_packets=np.random.poisson(200000), start_time=random.randint(0, 10)) for i in range(flows_number)]
 # random_flows = [Flow(id=i, num_packets=10, start_time=0) for i in range(flows_number)]
 for i, flow in enumerate(random_flows):
     queue_index = i % len(base_station.queues)
