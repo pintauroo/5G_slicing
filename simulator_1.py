@@ -10,12 +10,13 @@ class Queue:
         self.packets = 0  # Total packets in the queue
         self.flows = []  # Flows assigned to this queue
         self.flows_packets = []  # List to store packets (by flow ID)
-        self.buffer_size = 20
+        self.buffer_size = 200000
         
 
 class Flow:
     def __init__(self, id: int, num_packets: int, start_time: int):
         self.id = id
+        self.num_packets_tot = num_packets
         self.num_packets = num_packets
         self.start_time = start_time
         self.completion_time = None
@@ -40,8 +41,8 @@ class Flow:
         self.inflight = inflight
 
 class BaseStation:
-    def __init__(self, num_prbs: int):
-        self.queues = [Queue(id) for id in range(3)]  # Assume 3 queues
+    def __init__(self, num_prbs: int, num_queues: int):
+        self.queues = [Queue(id) for id in range(num_queues)]  # Assume 3 queues
         self.time = 0
         #self.prb_data_capacity = prb_data_capacity
         self.total_num_prbs = num_prbs
@@ -210,6 +211,8 @@ class BaseStation:
     
     def propotional_slicing(self, prbs_to_slice):
         total_packets = sum(queue.packets for queue in self.queues)
+        # check how many packets each flow in that queue has left
+        # cwnd
         prbs_allocation = [0] * len(self.queues)
         #print(prbs_allocation)
         if total_packets > 0:
@@ -249,12 +252,13 @@ class BaseStation:
  
 
     def simulate_time_step(self):
-        self.cqi = [random.randint(1,5) for _ in range(3)]  # place holder for actual channel condition function
+        # self.cqi = [random.randint(1,5) for _ in range(3)]  # place holder for actual channel condition function
+        self.cqi = [15 for _ in range(3)]  # place holder for actual channel condition function
         self.time += 1
         self.fill_queues()
         #drain the queue accordin to different sched algorithm
-        self.drain_sched_PF()
-        #$self.drain_sched_RR()
+        # self.drain_sched_PF()
+        self.drain_sched_RR()
 
     
 
@@ -266,7 +270,7 @@ class BaseStation:
 
             self.time_stamp.append(self.time)
 
-            if len(self.completed_flows) == len(flow_list):
+            if len(self.completed_flows) == len(flows_list):
                 break
 
             if self.time > num_steps:
@@ -292,9 +296,11 @@ class BaseStation:
                
 
 # Set up the simulation parameters
-execution_time = 100000
+execution_time = 1000000
 flows_number = 10
-base_station = BaseStation(num_prbs=50)
+num_queues = 3
+
+base_station = BaseStation(num_prbs=50, num_queues=num_queues)
 
 # Generate random flows and associate them with queues
 
@@ -305,32 +311,62 @@ base_station = BaseStation(num_prbs=50)
 ##########################################################################################################################
 '''
 flow id 
-
-
 '''
 
 
-flow_list = [Flow(id=0, num_packets=2500, start_time=0 ),
-               Flow(id=1, num_packets=2500, start_time=0 ),
-               Flow(id=2, num_packets=250000, start_time=0 ),
-               Flow(id=3, num_packets=10000, start_time=0 ),
-               Flow(id=4, num_packets=250000, start_time=0 ),
-               Flow(id=5, num_packets=150000, start_time=0 ),
-               Flow(id=6, num_packets=50000, start_time=0 ),
-               Flow(id=7, num_packets=50000, start_time=0 ),
-               Flow(id=8, num_packets=10000, start_time=0 ),
-               Flow(id=9, num_packets=15000, start_time=0 ),
-               ]
+# flows_list = [Flow(id=0, num_packets=2500, start_time=0 ),
+#                Flow(id=1, num_packets=2500, start_time=0 ),
+#                Flow(id=2, num_packets=250000, start_time=0 ),
+#                Flow(id=3, num_packets=10000, start_time=0 ),
+#                Flow(id=4, num_packets=250000, start_time=0 ),
+#                Flow(id=5, num_packets=150000, start_time=0 ),
+#                Flow(id=6, num_packets=50000, start_time=0 ),
+#                Flow(id=7, num_packets=50000, start_time=0 ),
+#                Flow(id=8, num_packets=10000, start_time=0 ),
+#                Flow(id=9, num_packets=15000, start_time=0 ),
+#                ]
 
 
 
-#random_flows = [Flow(id=i, num_packets=np.random.poisson(100000), start_time=random.randint(0, 10)) for i in range(flows_number)]
 
+def generate_flows(num_flows: int, min_packets=1000, max_packets=10000, step=900, lambda_inv=100):
+    flows_list = []
+    current_time = 0  # Initialize current time
 
-for i, flow in enumerate(flow_list):
-    queue_index = i % len(base_station.queues)
-    print('flow:'+str(i), 'on queue:'+str(queue_index))
-    base_station.add_flow(flow, queue_index)
+    for flow_id in range(num_flows):
+        # Deterministically generate num_packets within the specified range
+        num_packets = min_packets + (flow_id * step) % (max_packets - min_packets)
+
+        # Simulate deterministic "Poissonian-like" arrival times
+        # The arrival times increase in a pattern that mimics the variability of a Poisson process
+        # Here, we use a sine function for variability and ensure it's always positive and scales with lambda_inv
+        interval = lambda_inv + math.sin(flow_id) * lambda_inv / 2
+        current_time += interval
+
+        flow = Flow(id=flow_id, num_packets=num_packets, start_time=int(current_time))
+        flows_list.append(flow)
+
+    return flows_list
+
+flows_list = generate_flows(num_flows=1000, min_packets=100, max_packets=10000, step=900, lambda_inv=100)
+
+for i, flow in enumerate(flows_list):
+    if num_queues == 1:
+        base_station.add_flow(flow, 0)
+
+    else:
+        if flow.num_packets<1000:
+            base_station.add_flow(flow, 0)
+
+        elif flow.num_packets<5000 and flow.num_packets>1000:
+            base_station.add_flow(flow, 1)
+
+        else:
+            base_station.add_flow(flow, 2)
+
+    # queue_index = i % len(base_station.queues)
+    # print('flow:'+str(i), 'on queue:'+str(queue_index))
+    # base_station.add_flow(flow, queue_index)
 
 # Run the simulation
 completion_times = base_station.simulate(execution_time)
@@ -339,4 +375,14 @@ completion_times = base_station.simulate(execution_time)
 csv_filename = 'prb_allocations.csv'
 base_station.write_prb_allocations_to_csv(csv_filename)
 
-print("Flow completion times:", completion_times)
+# print("Flow completion times:", completion_times)
+
+
+# Write the flows to a CSV file
+csv_filename = "flows_"+str(num_queues)+"q.csv"
+with open(csv_filename, mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(["ID", "Num_Packets", "Num_Packets_Left", "Start_Time", "Completion_Time", "Inflight"])
+    for flow in flows_list:
+        writer.writerow([flow.id, flow.num_packets_tot, flow.num_packets, flow.start_time, flow.completion_time, flow.inflight])
+

@@ -1,6 +1,5 @@
 import csv
 import random
-import math
 
 class Queue:
     def __init__(self, id):
@@ -41,6 +40,7 @@ class BaseStation:
         self.total_num_prbs = num_prbs
         self.completed_flows = []
         self.prb_allocations = []
+        self.prb_used = []
 
     def add_flow(self, flow: Flow, queue_index: int):
         self.queues[queue_index].flows.append(flow)
@@ -50,33 +50,27 @@ class BaseStation:
         for queue in self.queues:
             for flow in queue.flows:
                 if self.time >= flow.start_time and flow.num_packets > 0 and flow.completion_time is None:
-                    added_packets = flow.send()
-                    queue.packets += added_packets
-                    queue.flows_packets.extend([flow.id] * added_packets)
-                    print(f'Flow {flow.id} added {added_packets} packets to Queue {queue.id}')
-
-    def bs_data_rate(self,cqi=15):
-        
-
-        slots_per_frame = 1600
-
-        cqi_factors = [0.1523, 0.1523, 0.3770, 0.8770, 1.4766, 1.9141, 2.4063, 2.7305, 3.3223, 3.9023, 4.5234, 5.1152, 5.5547, 6.2266, 6.9141, 7.4063]
-
-
-        Tbsize = 132 * cqi_factors[int(cqi)]
-
-        Tbsize = math.floor(Tbsize)
-
-        rate = int(Tbsize) * int(slots_per_frame)
-
-
-        #data rate bit/s
-
-        return rate
+                    added_packets = flow.send()  # Attempt to send packets
+                    
+                    # Calculate packets that can be actually added to the queue without exceeding its limit
+                    packets_to_add = min(added_packets, queue.queue_size - queue.packets)
+                    
+                    # Update queue state
+                    queue.packets += packets_to_add
+                    queue.flows_packets.extend([flow.id] * packets_to_add)
+                    
+                    # Calculate the number of packets that couldn't be added due to queue limit
+                    packets_dropped = added_packets - packets_to_add
+                    
+                    # Update the flow's state based on dropped packets (if any)
+                    flow.drop_pkts(packets_dropped)
+                    
+                    print(f'Flow {flow.id} added {packets_to_add} packets to Queue {queue.id}. Dropped {packets_dropped} packets.')
+            print('Queue'+str(queue.id), queue.flows_packets)
 
 
-    def drain_queues(self):
-        print('\n----DRAIN----')
+    def slicing(self):    
+        # Solve how many prbs to assign to each queue
         total_packets = sum(queue.packets for queue in self.queues)
 
         prbs_allocation = [0] * len(self.queues)
@@ -99,10 +93,10 @@ class BaseStation:
                     flow_id = queue.flows_packets.pop(0)
                     flow = next((f for f in queue.flows if f.id == flow_id), None)
                     if flow:
-                        flow.ack(1, self.time)
+                        completed = flow.ack(1, self.time) # confirm it was digested
                         queue.packets -= 1  # Ensure to decrement queue packets
-                        prbs_for_queue -= 1
-                        if flow.num_packets <= 0 and flow not in self.completed_flows:
+                        prbs_allocation_used[i] += 1
+                        if completed:
                             self.completed_flows.append(flow)
                             completed = False
                 print(f'Queue:{queue.id}, length:{len(queue.flows_packets)}')
@@ -110,11 +104,6 @@ class BaseStation:
         
 
         print(f'PRB allocated: {prbs_allocation}, PRB used: {prbs_allocation_used}')
-
-
-    def drain(self):
-        total_packets = sum(queue.packets for queue in self.queues)
-
 
 
 
@@ -129,7 +118,6 @@ class BaseStation:
 
 
     def simulate_time_step(self):
-        self.radio_link_quality = [random.random() for _ in range(3)] 
         self.time += 1
         self.fill_queues()
         self.drain_queues()
@@ -158,8 +146,8 @@ class BaseStation:
 
 # Set up the simulation parameters
 execution_time = 1000
-flows_number = 10
-base_station = BaseStation(prb_data_capacity=1, num_prbs=15)
+flows_number = 2
+base_station = BaseStation(prb_data_capacity=1, num_prbs=25)
 
 # Generate random flows and associate them with queues
 
