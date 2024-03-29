@@ -16,6 +16,7 @@ class Flow:
         self.start_time = start_time
         self.completion_time = None
         self.inflight = 0
+        self.cwnd = 2
     
     def ack(self, num_packets, time):
         self.num_packets -= num_packets
@@ -26,7 +27,11 @@ class Flow:
         return False
 
     def send(self):
-        self.inflight = min(self.inflight + random.randint(1, 10), self.num_packets)
+        if self.inflight == 0:
+            self.cwnd += 10
+        else:
+            self.cwnd = max(2, self.cwnd/2)
+        self.inflight = min(self.inflight + self.cwnd, self.num_packets)
         return self.inflight
     
     def drop_pkts(self, inflight):
@@ -133,7 +138,7 @@ class BaseStation:
             self.simulate_time_step()
 
             completion_times = [(flow.id, flow.start_time, flow.completion_time) for flow in self.completed_flows]
-            print('completed:', completion_times)
+        print('completed:', completion_times)
 
         return completion_times
 
