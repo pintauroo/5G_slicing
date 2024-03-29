@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 packet_ranges = [(100, 10000)]
 
 csv_files = [
-    "/home/andrea/projects/5G_slicing/RR_flows_100q.csv",
-    "/home/andrea/projects/5G_slicing/PF_flows_100q.csv"
+    "RR_flows_100q.csv",
+    "PF_flows_100q.csv"
 ]
 
 # Loop through each packet size range
