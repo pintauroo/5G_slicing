@@ -6,10 +6,13 @@ import matplotlib.pyplot as plt
 packet_ranges = [(100, 10000)]
 
 csv_files = [
-    "RR_flows_100q.csv",
-    "PF_flows_100q.csv"
+    "RR_flows_3q.csv",
+    "PF_flows_3q.csv",
+    "RR_flows_greedy.csv"
 ]
 
+
+name = ["Round robin", " Propotional fair", "Propotional-Greedy"]
 # Loop through each packet size range
 for packet_range in packet_ranges:
     plt.figure(figsize=(8, 6))
@@ -28,10 +31,10 @@ for packet_range in packet_ranges:
         
         plt.plot(data_filtered["Actual_Completion_Time"], data_filtered["CDF"], marker='o', linestyle='-', label=f"CDF of {csv_file.split('/')[-1]} in range {packet_range}")
     
-    plt.title(f'CDF of Actual Completion Time for Packet Size {packet_range}')
-    plt.xlabel('Actual Completion Time')
-    plt.ylabel('CDF')
+    plt.title(f'CDF of Actual Completion Time for Packet Size {packet_range}', fontsize=15)
+    plt.xlabel('Actual Completion Time',fontsize=20)
+    plt.ylabel('CDF',fontsize=20)
     plt.grid(True)
     plt.legend()
     
-    plt.savefig(f'flows_cdf_{packet_range[0]}_{packet_range[1]}.png')
+    plt.savefig(f'flows_cdf_{packet_range[0]}_{packet_range[1]}.png', dpi=900)

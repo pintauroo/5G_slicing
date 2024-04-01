@@ -10,7 +10,7 @@ class Queue:
         self.packets = 0  # Total packets in the queue
         self.flows = []  # Flows assigned to this queue
         self.flows_packets = []  # List to store packets (by flow ID)
-        self.buffer_size = 100
+        self.buffer_size = 160
         
 
 class Flow:
@@ -62,6 +62,7 @@ class BaseStation:
         self.prb_used = []
         self.time_stamp = []
         self.scheduling = scheduling
+        self.packet_loss = 0
 
     def add_flow(self, flow: Flow, queue_index: int):
         self.queues[queue_index].flows.append(flow)
@@ -69,6 +70,7 @@ class BaseStation:
     def fill_queues(self):
         print('\n----FILL----')
         for queue in self.queues:
+            self.time +=1
             for flow in queue.flows:
 
                 if self.time >= flow.start_time and flow.num_packets > 0 and flow.completion_time is None:
@@ -79,8 +81,14 @@ class BaseStation:
 
                     
                         queue.packets += added_packets
+
+                        queue.flows_packets.extend([flow.id] *added_packets)
+
+                        print(queue.flows_packets)
                     else:
                         dropped = (queue.packets + added_packets) - queue.buffer_size
+
+                        self.packet_loss += dropped
 
                         queue.packets = queue.buffer_size
 
@@ -89,6 +97,7 @@ class BaseStation:
 
                     #queue.flows_packets.extend([flow.id] * added_packets)
                     print(f'Flow {flow.id} added {added_packets} packets to Queue {queue.id}, dropped: {dropped}, flow packets: {flow.num_packets}')
+
 
     def bs_data_rate(self,cqi):
         slots_per_frame = 1600
@@ -100,54 +109,105 @@ class BaseStation:
 
 
 
-    def drain_queues(self):
+    def drain_sched_PF(self):
+        print('-----DRAIN------ \n')
+        
+        self.prbs_allocations = self.slicing()  # Slicing
+
+        packets_transmitted = [0] * len(self.queues)
+
+        for i, queue in enumerate(self.queues):
+            if queue.packets > 0:
+                
+                packets_to_tx = min(queue.packets, self.bs_data_rate(self.cqi[i]) * self.prbs_allocations[i])
+
+                print('capacity: ',queue.packets,self.bs_data_rate(self.cqi[i]) * self.prbs_allocations[i])
+
+                packets_transmitted[i] = packets_to_tx
+
+                #print(queue.packets)
+
+                flow_priorities = self.PF_scheduler(queue, self.bs_data_rate(self.cqi[i]))
+
+
+                
+                for flow_id  in flow_priorities:
+                    prb_ratio = self.prb_allocations[i] / self.total_num_prbs
+
+                    print('prb_ratio: ',prb_ratio)
+
+                    flow = next((f for f in queue.flows if f.id == flow_id), None)
+                    if (flow and packets_to_tx > 0):
+                        packets_from_flow = min(packets_to_tx, flow.num_packets)
+                        #print(packets_to_tx, flow.num_packets, flow.inflight)
+                        acked = flow.ack(packets_from_flow, self.time)
+                        # packets_to_tx -= packets_from_flow
+                        #queue.packets -= packets_from_flow
+
+
+            
+
+                        if acked and flow not in self.completed_flows:
+                            self.completed_flows.append(flow)
+
+                        if packets_to_tx <= 0:
+                            break
+                
+                queue.packets -= packets_transmitted[i]
+
+                print(f'Queue {queue.id} drained {packets_transmitted[i]} packets, remaining packets: {queue.packets}')
+            self.time += 1
     
-        for queue in self.queues:
-            while len(queue.flows_packets) > 0:
-                flow_id = queue.flows_packets.pop(0)
-                flow = next((f for f in queue.flows if f.id == flow_id), None)
-                if flow:
-                    completed = flow.ack(1, self.time)
-                    queue.packets -= 1
-                    if completed:
-                        self.completed_flows.append(flow)
-                        completed = False
+    
+    def drain_sched_RR(self):
+        print('-----DRAIN------ \n')
+        
+        self.prbs_allocations = self.slicing()  # Example slicing function output
 
+        packets_transmitted = [0] * len(self.queues)
 
-    def fill_queues_RR(self):
-        print('\n----FILL-------RR----')
-
-        for queue in self.queues:
-            flows = self.RR_scehduler(queue)
-
-            for flow_id, _ in flows:
-                flow = next((f for f in queue.flows if f.id == flow_id), None)
-                if self.time >= flow.start_time and flow.num_packets > 0 and flow not in self.completed_flows:
-
-                    added_packets = flow.send()
-                    dropped = 0
+        for i, queue in enumerate(self.queues):
+            if queue.packets > 0:
                 
-                    if queue.packets + added_packets <= queue.buffer_size:
-                        queue.packets += added_packets
-                        queue.flows_packets.extend(([flow.id]) * added_packets)
-                    
-                    else: 
+                packets_to_tx = min(queue.packets, self.bs_data_rate(self.cqi[i]) * self.prbs_allocations[i])
 
-                        packets_dropped = (queue.packets + added_packets) - queue.buffer_size
+                print(self.bs_data_rate(self.cqi[i]) * self.prbs_allocations[i])
 
-                        queue.packets = queue.buffer_size
+                packets_transmitted[i] = packets_to_tx
 
-                        flow.drop_pkts(dropped)
-                    
-                    print(f'Flow {flow.id} added {added_packets} packets to Queue {queue.id}, dropped: {dropped}, flow packets: {flow.num_packets}')
+                print(queue.packets)
+
+                flow_priorities = self.RR_scehduler(queue)
                 
+                for flow_id, _ in flow_priorities:
+                    prb_ratio = 1
+
+                    flow = next((f for f in queue.flows if f.id == flow_id), None)
+                    if flow:
+                        packets_from_flow = min(packets_to_tx, flow.num_packets)
+                        acked = flow.ack(packets_from_flow, self.time)
+                        #packets_to_tx -= packets_from_flow
+                        #queue.packets -= packets_from_flow
+
+
+            
+
+                        if acked and flow not in self.completed_flows:
+                            self.completed_flows.append(flow)
+
+                        if packets_to_tx <= 0:
+                            break
+                    self.time +=1
+                queue.packets -= packets_transmitted[i]
+
+                print(f'Queue {queue.id} drained {packets_transmitted[i]} packets, remaining packets: {queue.packets}, ')
 
 
 
 
 
-
-
+    
+    
 
     
 
@@ -162,6 +222,7 @@ class BaseStation:
                 priority_metric.append(priority)
                 flow_priorities.append((flow.id, priority))
         sorted_flows = sorted(flow_priorities, key=lambda x: x[1], reverse=True)
+        sorted_flows = [flow_id for flow_id, _ in sorted_flows]
         return sorted_flows
 
     def RR_scehduler(self, queue):
@@ -188,44 +249,29 @@ class BaseStation:
         return prbs_allocation
     
 
-    def dynamic_slicing(self, prbs_to_slice):
-
-        total_packets = sum(queue.packets for queue in self.queues)
-        
-        prbs_allocation = [0] * len(self.queues)
-
-        if total_packets > 0:
-            for i, queue in enumerate(self.queues):
-                proportion = queue.packets / total_packets
-                cqi = self.cqi[i]
-
-                normalized_cqi = (15 - cqi) / 14
-
-                #75% priority to BUFFER  and 25% to cqi
-                prbs_allocation[i] = int(0.75 * proportion * prbs_to_slice +  0.25 * prbs_to_slice * normalized_cqi)
-        
-        return prbs_allocation
-
         
     def slicing(self):
-        #place holder for slicing algorithm       
+
         self.prb_allocations = self.propotional_slicing(self.total_num_prbs)
+        self.prb_allocations = [5, 5, 40]
         self.prb_used.append(self.prb_allocations)
         return self.prb_allocations
 
  
 
     def simulate_time_step(self):
-        # self.cqi = [random.randint(1,5) for _ in range(3)]  # place holder for actual channel condition function
-        self.cqi = [15 for _ in range(len(self.queues))]  # place holder for actual channel condition function
-        self.time += 1
-        self.fill_queues_RR()
+        self.cqi = [random.randint(1,15) for _ in range(len(self.queues))]  # place holder for actual channel condition function
+        #self.cqi = [15 for _ in range(len(self.queues))]  # place holder for actual channel condition function
+        #self.time += 1
+        self.fill_queues()
         #drain the queue accordin to different sched algorithm
         if self.scheduling == 'RR':
-            self.drain_queues()
+            self.drain_sched_RR()
         
         elif self.scheduling == 'PF':
-            self.drain_queues()
+            self.drain_sched_PF()
+        
+        print('total dropped packets :', self.packet_loss)
 
     
 
@@ -263,11 +309,13 @@ class BaseStation:
                
 
 # Set up the simulation parameters
-execution_time = 10
-flows_number = num_queues =100
+execution_time = 10000
+flows_number = 10
+
+num_queues =3 
 
 scheduling = "PF"
-#scheduling = "RR"
+scheduling = "RR"
 base_station = BaseStation(num_prbs=50, num_queues=num_queues, scheduling= scheduling)
 
 # Generate random flows and associate them with queues
@@ -283,14 +331,14 @@ flow id
 
 
 # flows_list = [Flow(id=0, num_packets=2500, start_time=0 ),
-#                Flow(id=1, num_packets=2500, start_time=0 ),
-#                Flow(id=2, num_packets=2500, start_time=0 ),
-#                Flow(id=3, num_packets=2500, start_time=0 ),
-#                Flow(id=4, num_packets=2500, start_time=0 ),
-#                Flow(id=5, num_packets=2500, start_time=0 ),
-#                Flow(id=6, num_packets=2500, start_time=0 ),
-#                Flow(id=7, num_packets=2500, start_time=0 ),
-#                Flow(id=8, num_packets=2500, start_time=0 ),
+#                Flow(id=1, num_packets=25000, start_time=0 ),
+#                Flow(id=2, num_packets=250, start_time=0 ),
+#                Flow(id=3, num_packets=2500000, start_time=0 ),
+#                Flow(id=4, num_packets=250000, start_time=0 ),
+#                Flow(id=5, num_packets=25, start_time=0 ),
+#                Flow(id=6, num_packets=250, start_time=0 ),
+#                Flow(id=7, num_packets=250, start_time=0 ),
+#                Flow(id=8, num_packets=12500, start_time=0 ),
 #                Flow(id=9, num_packets=2500, start_time=0 ),
 #                ]
 
@@ -323,24 +371,24 @@ def generate_flows(num_flows: int, min_packets=10, max_packets=100, lambda_inv=1
 flows_list = generate_flows(num_flows=flows_number, min_packets=1000, max_packets=10000, lambda_inv=100)
 
 for i, flow in enumerate(flows_list):
-    base_station.add_flow(flow, i)
+    #base_station.add_flow(flow, i)
 
-    # if num_queues == 1:
-    #     base_station.add_flow(flow, 0)
+    if num_queues == 1:
+        base_station.add_flow(flow, 0)
 
-    # else:
-    #     if flow.num_packets<1000:
-    #         base_station.add_flow(flow, 0)
+    else:
+        if flow.num_packets<1000:
+            base_station.add_flow(flow, 0)
 
-    #     elif flow.num_packets<5000 and flow.num_packets>1000:
-    #         base_station.add_flow(flow, 1)
+        elif flow.num_packets<5000 and flow.num_packets>1000:
+            base_station.add_flow(flow, 1)
 
-    #     else:
-    #         base_station.add_flow(flow, 2)
+        else:
+            base_station.add_flow(flow, 2)
 
-    # queue_index = i % len(base_station.queues)
-    # print('flow:'+str(i), 'on queue:'+str(queue_index))
-    # base_station.add_flow(flow, queue_index)
+    queue_index = i % len(base_station.queues)
+    print('flow:'+str(i), 'on queue:'+str(queue_index))
+    base_station.add_flow(flow, queue_index)
 
 # Run the simulation
 completion_times = base_station.simulate(execution_time)
