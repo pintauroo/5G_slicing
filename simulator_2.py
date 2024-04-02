@@ -10,7 +10,8 @@ class Queue:
         self.packets = 0  # Total packets in the queue
         self.flows = []  # Flows assigned to this queue
         self.flows_packets = []  # List to store packets (by flow ID)
-        self.buffer_size = 160
+        self.buffer_size = 256
+        
         
 
 class Flow:
@@ -23,6 +24,7 @@ class Flow:
         self.inflight = 0
         self.cwnd = 2
         self.dropped = 0
+        self.flow_dropped = 0
     
     def ack(self, num_packets, time):
         self.num_packets -= num_packets
@@ -48,6 +50,7 @@ class Flow:
     
     def drop_pkts(self, dropped):
         self.dropped = dropped
+        self.flow_dropped += dropped
 
 class BaseStation:
     def __init__(self, num_prbs: int, num_queues: int, scheduling: str):
@@ -63,6 +66,7 @@ class BaseStation:
         self.time_stamp = []
         self.scheduling = scheduling
         self.packet_loss = 0
+        self.dropped_packets = []
 
     def add_flow(self, flow: Flow, queue_index: int):
         self.queues[queue_index].flows.append(flow)
@@ -89,6 +93,12 @@ class BaseStation:
                         dropped = (queue.packets + added_packets) - queue.buffer_size
 
                         self.packet_loss += dropped
+
+                        self.dropped_packets.append(dropped)
+
+                    
+
+                        
 
                         queue.packets = queue.buffer_size
 
@@ -127,7 +137,8 @@ class BaseStation:
 
                 #print(queue.packets)
 
-                flow_priorities = self.PF_scheduler(queue, self.bs_data_rate(self.cqi[i]))
+                flow_priorities = self.PF_scheduler_app_aware(queue, self.bs_data_rate(self.cqi[i]))
+                #flow_priorities = self.PF_scheduler(queue, self.bs_data_rate(self.cqi[i]))
 
 
                 
@@ -143,6 +154,10 @@ class BaseStation:
                         acked = flow.ack(packets_from_flow, self.time)
                         # packets_to_tx -= packets_from_flow
                         #queue.packets -= packets_from_flow
+
+                        #add_buffer_bloat penalty
+                        bb_penalty = int(queue.buffer_size * 0.1)
+                        self.time += bb_penalty
 
 
             
@@ -180,7 +195,7 @@ class BaseStation:
                 flow_priorities = self.RR_scehduler(queue)
                 
                 for flow_id, _ in flow_priorities:
-                    prb_ratio = 1
+                    
 
                     flow = next((f for f in queue.flows if f.id == flow_id), None)
                     if flow:
@@ -188,6 +203,8 @@ class BaseStation:
                         acked = flow.ack(packets_from_flow, self.time)
                         #packets_to_tx -= packets_from_flow
                         #queue.packets -= packets_from_flow
+                        bb_penalty = int(queue.buffer_size * 0.1)
+                        self.time += bb_penalty
 
 
             
@@ -224,6 +241,18 @@ class BaseStation:
         sorted_flows = sorted(flow_priorities, key=lambda x: x[1], reverse=True)
         sorted_flows = [flow_id for flow_id, _ in sorted_flows]
         return sorted_flows
+    
+    def PF_scheduler_app_aware(self, queue, data_rate):       
+        flow_priorities = []
+        priority_metric = []
+        for flow in queue.flows:
+            if flow.num_packets > 0 and flow.inflight > 0:
+                priority = flow.dropped / flow.num_packets
+                priority_metric.append(priority)
+                flow_priorities.append((flow.id, priority))
+        sorted_flows = sorted(flow_priorities, key=lambda x: x[1], reverse=True)
+        sorted_flows = [flow_id for flow_id, _ in sorted_flows]
+        return sorted_flows
 
     def RR_scehduler(self, queue):
         flow_priorities = []
@@ -252,8 +281,8 @@ class BaseStation:
         
     def slicing(self):
 
-        self.prb_allocations = self.propotional_slicing(self.total_num_prbs)
-        self.prb_allocations = [5, 5, 40]
+        #self.prb_allocations = self.propotional_slicing(self.total_num_prbs)
+        self.prb_allocations = [10, 20, 30]
         self.prb_used.append(self.prb_allocations)
         return self.prb_allocations
 
@@ -262,7 +291,7 @@ class BaseStation:
     def simulate_time_step(self):
         self.cqi = [random.randint(1,15) for _ in range(len(self.queues))]  # place holder for actual channel condition function
         #self.cqi = [15 for _ in range(len(self.queues))]  # place holder for actual channel condition function
-        #self.time += 1
+        self.time += 1
         self.fill_queues()
         #drain the queue accordin to different sched algorithm
         if self.scheduling == 'RR':
@@ -272,6 +301,7 @@ class BaseStation:
             self.drain_sched_PF()
         
         print('total dropped packets :', self.packet_loss)
+        print(self.dropped_packets)
 
     
 
@@ -291,7 +321,7 @@ class BaseStation:
 
             self.simulate_time_step()
 
-            completion_times = [(flow.id, flow.start_time, flow.completion_time) for flow in self.completed_flows]
+            completion_times = [(flow.id, flow.start_time, flow.completion_time, flow.dropped) for flow in self.completed_flows]
             #print('completed:', completion_times)
             
 
@@ -330,45 +360,45 @@ flow id
 '''
 
 
-# flows_list = [Flow(id=0, num_packets=2500, start_time=0 ),
-#                Flow(id=1, num_packets=25000, start_time=0 ),
-#                Flow(id=2, num_packets=250, start_time=0 ),
-#                Flow(id=3, num_packets=2500000, start_time=0 ),
-#                Flow(id=4, num_packets=250000, start_time=0 ),
-#                Flow(id=5, num_packets=25, start_time=0 ),
-#                Flow(id=6, num_packets=250, start_time=0 ),
-#                Flow(id=7, num_packets=250, start_time=0 ),
-#                Flow(id=8, num_packets=12500, start_time=0 ),
-#                Flow(id=9, num_packets=2500, start_time=0 ),
-#                ]
+flows_list = [Flow(id=0, num_packets= 10000, start_time=0 ),
+               Flow(id=1, num_packets=9000, start_time=0 ),
+               Flow(id=2, num_packets=8000, start_time=0 ),
+               Flow(id=3, num_packets=4000, start_time=0 ),
+               Flow(id=4, num_packets=2500, start_time=0 ),
+               Flow(id=5, num_packets=2500, start_time=0 ),
+               Flow(id=6, num_packets=1500, start_time=0 ),
+               Flow(id=7, num_packets=800, start_time=0 ),
+               Flow(id=8, num_packets=700, start_time=0 ),
+               Flow(id=9, num_packets=500, start_time=0 ),
+               ]
 
-# flows_list = [Flow(id=0, num_packets=2500, start_time=0)]
-
-
+#flows_list = [Flow(id=0, num_packets=2500, start_time=0)]
 
 
-def generate_flows(num_flows: int, min_packets=10, max_packets=100, lambda_inv=100):
-    flows_list = []
-    current_time = 0  # Initialize current time
-
-    for flow_id in range(num_flows):
-        # Use a more complex function for num_packets to ensure variability and non-linearity
-        num_packets = int(min_packets + (math.sin(flow_id) + math.sin(flow_id**2 / 30)) * (max_packets - min_packets) / 2)
-
-        # Ensure num_packets does not exceed max_packets
-        num_packets = max(min(num_packets, max_packets), min_packets)
-
-        # Simulate deterministic "Poissonian-like" arrival times with added variability
-        interval = lambda_inv + math.sin(flow_id) * lambda_inv / 2
-        current_time += interval
-
-        flow = Flow(id=flow_id, num_packets=num_packets, start_time=int(current_time))
-        flows_list.append(flow)
-
-    return flows_list
 
 
-flows_list = generate_flows(num_flows=flows_number, min_packets=1000, max_packets=10000, lambda_inv=100)
+# def generate_flows(num_flows: int, min_packets=10, max_packets=100, lambda_inv=100):
+#     flows_list = []
+#     current_time = 0  # Initialize current time
+
+#     for flow_id in range(num_flows):
+#         # Use a more complex function for num_packets to ensure variability and non-linearity
+#         num_packets = int(min_packets + (math.sin(flow_id) + math.sin(flow_id**2 / 30)) * (max_packets - min_packets) / 2)
+
+#         # Ensure num_packets does not exceed max_packets
+#         num_packets = max(min(num_packets, max_packets), min_packets)
+
+#         # Simulate deterministic "Poissonian-like" arrival times with added variability
+#         interval = lambda_inv + math.sin(flow_id) * lambda_inv / 2
+#         current_time += interval
+
+#         flow = Flow(id=flow_id, num_packets=num_packets, start_time=int(current_time))
+#         flows_list.append(flow)
+
+#     return flows_list
+
+
+# flows_list = generate_flows(num_flows=flows_number, min_packets=1000, max_packets=10000, lambda_inv=100)
 
 for i, flow in enumerate(flows_list):
     #base_station.add_flow(flow, i)
@@ -404,7 +434,7 @@ base_station.write_prb_allocations_to_csv(csv_filename)
 csv_filename = scheduling + "_flows_"+str(num_queues)+"q.csv"
 with open(csv_filename, mode='w', newline='') as file:
     writer = csv.writer(file)
-    writer.writerow(["ID", "Num_Packets", "Num_Packets_Left", "Start_Time", "Completion_Time", "Inflight"])
+    writer.writerow(["ID", "Num_Packets", "Num_Packets_Left", "Start_Time", "Completion_Time", "Inflight", "Dropped"])
     for flow in flows_list:
-        writer.writerow([flow.id, flow.num_packets_tot, flow.num_packets, flow.start_time, flow.completion_time, flow.inflight])
+        writer.writerow([flow.id, flow.num_packets_tot, flow.num_packets, flow.start_time, flow.completion_time, flow.inflight, flow.flow_dropped])
 
